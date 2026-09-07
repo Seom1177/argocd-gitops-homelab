@@ -14,9 +14,7 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: vault-autounseal
-  # Recreate ensures there is never more than one watcher at a time.
-  # RollingUpdate would briefly run two instances, both trying to unseal
-  # simultaneously and hammering the API server with duplicate exec calls.
+  # Recreate ensures there is never more than one watcher running at a time.
   strategy:
     type: Recreate
   template:
@@ -44,11 +42,8 @@ spec:
             - /bin/sh
             - -c
             - |
-              echo "[watcher] Vault unseal watcher started."
+              echo "[watcher] Vault unseal watcher (HTTP) started."
 
-              # Propagate SIGTERM/INT to the running child (unseal.sh or sleep)
-              # so in-flight kubectl exec connections are not orphaned when
-              # Kubernetes terminates the pod within terminationGracePeriodSeconds.
               _CHILD_PID=0
               _shutdown() {
                 if [ "$_CHILD_PID" -ne 0 ]; then
@@ -66,29 +61,37 @@ spec:
                 EXIT_CODE=$?
                 _CHILD_PID=0
                 if [ "$EXIT_CODE" -eq 0 ]; then
-                  # All pods healthy — long sleep to reduce API pressure.
-                  sleep 10 &
-                  _CHILD_PID=$!
-                  wait "$_CHILD_PID"
-                  _CHILD_PID=0
+                  # Everything healthy - sleep longer to reduce load on the mini PC.
+                  sleep "${SLEEP_HEALTHY:-15}" &
                 else
-                  # Something was sealed or failed — retry sooner.
-                  sleep 5 &
-                  _CHILD_PID=$!
-                  wait "$_CHILD_PID"
-                  _CHILD_PID=0
+                  # Something sealed or unreachable - retry sooner.
+                  sleep "${SLEEP_UNHEALTHY:-5}" &
                 fi
+                _CHILD_PID=$!
+                wait "$_CHILD_PID"
+                _CHILD_PID=0
               done
 
           env:
             - name: VAULT_NAMESPACE
               value: "vault"
-            - name: VAULT_TLS_SERVER_NAME
-              value: "vault"
+            - name: VAULT_CACERT
+              value: "/vault/userconfig/vault-tls/ca.crt"
+            # Kept comfortably under Vault's readinessProbe budget (30s
+            # initial delay + 6*10s = ~90s until NotReady): with direct
+            # curl calls the per-cycle cost drops a lot, so 15s/5s gives
+            # headroom without adding unnecessary load.
+            - name: SLEEP_HEALTHY
+              value: "15"
+            - name: SLEEP_UNHEALTHY
+              value: "5"
 
           volumeMounts:
             - name: script
               mountPath: /scripts
+              readOnly: true
+            - name: vault-tls
+              mountPath: /vault/userconfig/vault-tls
               readOnly: true
             - name: tmp
               mountPath: /tmp
@@ -114,5 +117,10 @@ spec:
           configMap:
             name: vault-autounseal-script
             defaultMode: 0555
+        # NEW: this wasn't mounted before - curl needs the CA to verify
+        # the Vault server's certificate over HTTPS.
+        - name: vault-tls
+          secret:
+            secretName: vault-tls
         - name: tmp
           emptyDir: {}
