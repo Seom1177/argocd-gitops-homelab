@@ -99,8 +99,8 @@ spec:
       interval: 30s
       honorLabels: true
       path: /metrics
-      targetLabels:
-        - io.cilium/app
+  targetLabels:
+    - io.cilium/app
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
