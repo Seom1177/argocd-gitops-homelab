@@ -96,6 +96,9 @@ kube-prometheus-stack:
         domain: my-cluster.lonk-mirfak.ts.net
         root_url: https://my-cluster.lonk-mirfak.ts.net/grafana/
         serve_from_sub_path: true
+      # Enforce 1m minimum dashboard refresh: aligns with 60s scrapeInterval,
+      dashboards:
+        min_refresh_interval: 1m
 
     # Add Loki as a data source
     additionalDataSources:
