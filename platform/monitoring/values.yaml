@@ -11,18 +11,24 @@ loki:
     replicas: 1
     persistence:
       size: 5Gi
+      # storageClass "" = cluster default (Longhorn default class in prod).
+      # No StorageClass named "longhorn" is defined in this repo (only
+      # longhorn-prod in platform/longhorn/templates/storageclass.yaml),
+      # so keep the default instead of pinning a name blindly.
       storageClass: ""
     # Inject SeaweedFS S3 credentials from Vault via ESO
     extraEnvFrom:
       - secretRef:
           name: loki-s3-credentials
+    # Right-sized for 3x4cpu/6GB workers: lean requests, headroom for
+    # immich/nextcloud/cloud-pg. Limits cap spikes without starving neighbors.
     resources:
       requests:
-        cpu: 100m
-        memory: 256Mi
+        cpu: 300m
+        memory: 512Mi
       limits:
-        cpu: 500m
-        memory: 768Mi
+        cpu: 1000m
+        memory: 1024Mi
 
   # Component replicas (set to 0 for Monolithic mode)
   write:
@@ -77,6 +83,14 @@ loki:
   # Enable gateway (default is true, but we ensure it)
   gateway:
     enabled: true
+    # Lean sidecar: nginx gateway just reverse-proxies to singleBinary.
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
     service:
       port: 80
       type: ClusterIP
@@ -139,30 +153,38 @@ kube-prometheus-stack:
             - grafana
 
   # Prometheus persistent storage & native Ingress:
+  # Right-sized for 3x4cpu/6GB workers (prod): 5d/10GB retention keeps the
+  # TSDB working set small while leaving headroom for immich, nextcloud
+  # and cloud pg. PVC 15Gi comfortably holds retentionSize + WAL headroom.
   prometheus:
     prometheusSpec:
       scrapeInterval: "60s"
       evaluationInterval: "60s"
-      retention: 7d
-      retentionSize: 15GB
+      retention: 5d
+      retentionSize: 10GB
       # Single-host gateway subpath — ADR-012
       externalUrl: https://my-cluster.lonk-mirfak.ts.net/prometheus
       routePrefix: /prometheus
       resources:
         requests:
-          cpu: 200m
-          memory: 256Mi
+          cpu: 500m
+          memory: 512Mi
         limits:
           cpu: 1000m
-          memory: 1024Mi
+          memory: 2048Mi
       storageSpec:
         volumeClaimTemplate:
           spec:
+            # Kept as-is: Longhorn default class (created by Longhorn itself,
+            # not defined in this repo). If write load ever justifies it,
+            # consider a replica-1 StorageClass for Prometheus TSDB data
+            # (metrics are reproducible from exporters; Loki chunks already
+            # live on S3). Do NOT rename blindly — verify class exists first.
             storageClassName: longhorn
             accessModes: ["ReadWriteOnce"]
             resources:
               requests:
-                storage: 30Gi
+                storage: 15Gi
 
     # Native Ingress configuration for Prometheus
     ingress:
@@ -183,6 +205,44 @@ kube-prometheus-stack:
   alertmanager:
     alertmanagerSpec:
       replicas: 1
+      # Lean: alertmanager is idle except on firing alerts.
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+
+  # Prometheus Operator: admission webhook + config reconciliation only.
+  prometheusOperator:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  # kube-state-metrics: small in-memory metrics cache.
+  kube-state-metrics:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+  # node-exporter (DaemonSet, per node): host metrics only.
+  prometheus-node-exporter:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
 
 # Grafana Alloy — log shipper for Loki
 # Deployed as a DaemonSet: discovers local pods via discovery.kubernetes, filters to own node,
@@ -194,6 +254,14 @@ alloy:
   alloy:
     mounts:
       varlog: true
+    # Lean log shipper (DaemonSet, per node): tail + forward only.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
     configMap:
       content: |-
         logging {
