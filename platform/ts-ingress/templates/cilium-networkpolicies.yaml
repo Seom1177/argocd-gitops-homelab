@@ -44,6 +44,15 @@ spec:
     matchLabels:
       app.kubernetes.io/name: cluster-gateway
   egress:
+    # Homepage — Pod 3000 only: kubeProxyReplacement=strict post-DNAT 80->3000; 80 never matches
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: homepage
+            k8s:app.kubernetes.io/name: homepage
+      toPorts:
+        - ports:
+            - port: 3000
+              protocol: TCP
     # ArgoCD — precise label + fallback namespace-only (label drift resilient)
     # Pod 8080 only: kubeProxyReplacement=strict post-DNAT ClusterIP:80 -> pod:8080; 80/443 never match
     - toEndpoints:

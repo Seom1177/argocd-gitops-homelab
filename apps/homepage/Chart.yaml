@@ -1,0 +1,12 @@
+apiVersion: v2
+name: homepage
+description: A modern, fully static, fast, secure fully proxied, highly customizable application dashboard with integrations for over 100 services and translations into multiple languages.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+home: https://gethomepage.dev/installation/k8s/
+sources:
+  - https://gethomepage.dev/
+maintainers:
+  - name: Seom88
+    url: https://github.com/Seom88

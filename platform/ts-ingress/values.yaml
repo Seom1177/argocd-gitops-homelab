@@ -24,6 +24,9 @@ gateway:
 
 # Per-service toggles — argocd/grafana/prometheus/longhorn/seaweedfs control gateway ConfigMap locations.
 # vault.enabled controls the dedicated vault-my-cluster Tailscale device (vault-ingress.yaml), not a gateway location.
+homepage:
+  enabled: true
+
 argocd:
   enabled: true
 
