@@ -51,7 +51,7 @@ spec:
             k8s:app.kubernetes.io/name: homepage
       toPorts:
         - ports:
-            - port: 3000
+            - port: "3000"
               protocol: TCP
     # ArgoCD — precise label + fallback namespace-only (label drift resilient)
     # Pod 8080 only: kubeProxyReplacement=strict post-DNAT ClusterIP:80 -> pod:8080; 80/443 never match
